@@ -1,30 +1,73 @@
 import 'dart:collection';
 import 'dart:math';
+import 'package:flutter/widgets.dart';
 import 'package:legal_wordle_words/legal_wordle_words.dart';
+import 'package:russian_wordle_repo/russian_wordle_repo.dart';
 
-const List<String> allLegalGuesses = [...legalWords, ...legalGuesses];
-const defaultNumGuesses = 5;
+const List<String> allLegalGuessesEng = [...legalWords, ...legalGuesses];
+const List<String> allLegalGuessesRus = [...legalWordsRus, ...legalGuessesRus];
+
+enum Lang { rus, eng }
 
 enum HitType { none, hit, partial, miss, removed }
 
 typedef Letter = ({String char, HitType type});
 
-/// This class holds game state for a single round of Bulls and Cows,
-/// and exposes methods that a UI would need to manage the game state.
-///
-/// On it's own, this class won't manage a game. For example, it won't
-/// call [startGame] on it's own. It assumes that a client will use it's
-/// methods to progress through a game.
-class Game {
-  Game({this.numAllowedGuesses = defaultNumGuesses, this.seed}) {
-    _wordToGuess = seed == null ? Word.random() : Word.fromSeed(seed!);
-    _guesses = List<Word>.filled(numAllowedGuesses, Word.empty());
+class GameState with ChangeNotifier {
+  GameState._internal() {
+    resetGame();
   }
 
-  late final int numAllowedGuesses;
+  static final GameState _instance = GameState._internal();
+
+  factory GameState() => _instance;
+
+  int numAllowedGuesses = 5;
+  Lang lang = Lang.rus;
+  int? seed;
+
   late List<Word> _guesses;
   late Word _wordToGuess;
-  int? seed;
+
+  void init({Lang? newLang, int? newSeed}) {
+    if (newLang != null) lang = newLang;
+    seed = newSeed;
+    resetGame();
+  }
+
+  void updateLanguage(Lang newLang) {
+    if (lang == newLang) return;
+    lang = newLang;
+    resetGame();
+  }
+
+  List<String> get allLegalGuesses => switch (lang) {
+    Lang.rus => allLegalGuessesRus,
+    Lang.eng => allLegalGuessesEng,
+  };
+
+  // Select the correct dictionary based on language
+  List<String> get _dictionary => lang == Lang.rus ? legalWordsRus : legalWords;
+
+  void resetGame() {
+    final words = _dictionary;
+    if (seed == null) {
+      _wordToGuess = Word.fromString(words[Random().nextInt(words.length)]);
+    } else {
+      _wordToGuess = Word.fromString(words[seed! % words.length]);
+    }
+    _guesses = List.generate(numAllowedGuesses, (_) => Word.empty());
+    notifyListeners();
+  }
+
+  Word matchGuessOnly(String guess) {
+    var hiddenCopy = Word.fromString(_wordToGuess.toString());
+    return Word.fromString(guess).evaluateGuess(hiddenCopy, allLegalGuesses);
+  }
+
+  bool isLegalGuess(String guess) {
+    return Word.fromString(guess).isLegalGuess(allLegalGuesses);
+  }
 
   Word get hiddenWord => _wordToGuess;
 
@@ -44,17 +87,13 @@ class Game {
     return numAllowedGuesses - activeIndex;
   }
 
-  void resetGame() {
-    _wordToGuess = seed == null ? Word.random() : Word.fromSeed(seed!);
-    _guesses = List.filled(numAllowedGuesses, Word.empty());
-  }
-
   // Most common entry-point for handling guess logic.
   // For finer control over logic, use other methods such as [isGuessLegal]
   // and [matchGuess]
   Word guess(String guess) {
     final result = matchGuessOnly(guess);
     addGuessToList(result);
+    notifyListeners();
     return result;
   }
 
@@ -69,19 +108,6 @@ class Game {
   }
 
   bool get didLose => guessesRemaining == 0 && !didWin;
-
-  // UIs can call this method before calling [guess] if they want
-  // to show users messages based incorrect words
-  bool isLegalGuess(String guess) {
-    return Word.fromString(guess).isLegalGuess;
-  }
-
-  // Doesn't move the game forward, only executes match logic.
-  Word matchGuessOnly(String guess) {
-    // The hidden word will be used by subsequent guesses.
-    var hiddenCopy = Word.fromString(_wordToGuess.toString());
-    return Word.fromString(guess).evaluateGuess(hiddenCopy);
-  }
 
   void addGuessToList(Word guess) {
     final i = _guesses.indexWhere((word) => word.isEmpty);
@@ -142,62 +168,59 @@ class Word with IterableMixin<Letter> {
   }
 }
 
-// Domain specific methods that contain word related logic.
 extension WordUtils on Word {
-  bool get isLegalGuess {
-    if (!allLegalGuesses.contains(toString())) {
-      return false;
-    }
-
-    return true;
+  // Pass the word list explicitly to check legality
+  bool isLegalGuess(List<String> legalList) {
+    return legalList.contains(toString());
   }
 
-  /// Compares two [Word] objects and returns a new [Word] that
-  /// has the same letters as the [this], but each [Letter]
-  /// has new a [LetterType] of either [LetterType.hit],
-  /// [LetterType.partial], or [LetterType.miss].
-  Word evaluateGuess(Word other) {
-    assert(isLegalGuess);
+  Word evaluateGuess(Word other, List<String> legalList) {
+    if (!isLegalGuess(legalList)) {
+      throw ArgumentError(
+        'The guess is not a legal word according to the current rules.',
+      );
+    }
 
-    // Find exact hits. Mark them as hits, and mark letters in the hidden word
-    // as removed.
-    for (var i = 0; i < length; i++) {
-      if (other[i].char == this[i].char) {
-        this[i] = (char: this[i].char, type: HitType.hit);
-        other[i] = (char: other[i].char, type: HitType.removed);
+    // Create a copy of the letters to avoid side effects during logic
+    final resultLetters = List<Letter>.from(this);
+    final targetLetters = List<Letter>.from(other);
+
+    // 1. Find exact hits
+    for (var i = 0; i < resultLetters.length; i++) {
+      if (targetLetters[i].char == resultLetters[i].char) {
+        resultLetters[i] = (char: resultLetters[i].char, type: HitType.hit);
+        targetLetters[i] = (char: targetLetters[i].char, type: HitType.removed);
       }
     }
 
-    // Find the partial matches
-    // The outer loop is through the hidden word
-    for (var i = 0; i < other.length; i++) {
-      // If a letter in the hidden word is already marked as "removed",
-      // then it's already an exact match, so skip it
-      Letter targetLetter = other[i];
-      if (targetLetter.type != HitType.none) continue;
+    // 2. Find partial matches
+    for (var i = 0; i < targetLetters.length; i++) {
+      if (targetLetters[i].type == HitType.removed) continue;
 
-      // loop through the guessed word onces for each letter in the hidden word
-      for (var j = 0; j < length; j++) {
-        Letter guessedLetter = this[j];
-        // skip letters that have already been marked as exact matches
-        if (guessedLetter.type != HitType.none) continue;
-        // If this letter, which must not be in the same position, is the same,
-        // it's a partial match
-        if (guessedLetter.char == targetLetter.char) {
-          this[j] = (char: guessedLetter.char, type: HitType.partial);
-          other[i] = (char: targetLetter.char, type: HitType.removed);
+      for (var j = 0; j < resultLetters.length; j++) {
+        if (resultLetters[j].type != HitType.none) continue;
+
+        if (resultLetters[j].char == targetLetters[i].char) {
+          resultLetters[j] = (
+            char: resultLetters[j].char,
+            type: HitType.partial,
+          );
+          targetLetters[i] = (
+            char: targetLetters[i].char,
+            type: HitType.removed,
+          );
           break;
         }
       }
     }
 
-    // Mark remaining letters in guessed word as misses
-    for (var i = 0; i < length; i++) {
-      if (this[i].type == HitType.none) {
-        this[i] = (char: this[i].char, type: HitType.miss);
+    // 3. Mark remaining as misses
+    for (var i = 0; i < resultLetters.length; i++) {
+      if (resultLetters[i].type == HitType.none) {
+        resultLetters[i] = (char: resultLetters[i].char, type: HitType.miss);
       }
     }
 
-    return this;
+    return Word(resultLetters);
   }
 }

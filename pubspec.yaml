@@ -11,6 +11,8 @@ dependencies:
     sdk: flutter
   legal_wordle_words:
     git: https://github.com/ericwindmill/legal_wordle_words
+  russian_wordle_repo:
+    git: https://github.com/syferever/russian_wordle_repo
 
 dev_dependencies:
   flutter_test:

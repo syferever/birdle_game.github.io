@@ -140,6 +140,15 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.9.1"
+  russian_wordle_repo:
+    dependency: "direct main"
+    description:
+      path: "."
+      ref: HEAD
+      resolved-ref: bc17be4caf4c7a088c026eda93fbc7123d6d7042
+      url: "https://github.com/syferever/russian_wordle_repo"
+    source: git
+    version: "1.0.0"
   sky_engine:
     dependency: transitive
     description: flutter

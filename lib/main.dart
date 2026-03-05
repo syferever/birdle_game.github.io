@@ -1,8 +1,28 @@
+import 'dart:collection';
+
 import 'package:birdle/game.dart';
 import 'package:flutter/material.dart';
 
 void main() {
   runApp(const MainApp());
+}
+
+typedef LangEntry = DropdownMenuEntry<LangDropdown>;
+
+enum LangDropdown {
+  rus('Rus', Lang.rus),
+  eng('Eng', Lang.eng);
+
+  const LangDropdown(this.label, this.language);
+  final String label;
+  final Lang language;
+
+  static final List<LangEntry> entries = UnmodifiableListView<LangEntry>(
+    values.map<LangEntry>(
+      (LangDropdown language) =>
+          LangEntry(value: language, label: language.label),
+    ),
+  );
 }
 
 class MainApp extends StatefulWidget {
@@ -13,13 +33,8 @@ class MainApp extends StatefulWidget {
 }
 
 class _MainAppState extends State<MainApp> {
-  Key gameKey = UniqueKey();
-
-  void _restartGame() {
-    setState(() {
-      gameKey = UniqueKey();
-    });
-  }
+  final TextEditingController langController = TextEditingController();
+  LangDropdown? selectedLang;
 
   @override
   Widget build(BuildContext context) {
@@ -31,7 +46,7 @@ class _MainAppState extends State<MainApp> {
             children: [
               IconButton(
                 icon: const Icon(Icons.restart_alt_rounded),
-                onPressed: _restartGame,
+                onPressed: GameState().resetGame,
                 iconSize: 30,
               ),
               Expanded(
@@ -40,10 +55,25 @@ class _MainAppState extends State<MainApp> {
                   child: const Text('Birdle'),
                 ),
               ),
+              DropdownMenu<LangDropdown>(
+                initialSelection: LangDropdown.rus,
+                controller: langController,
+                label: const Text('Language'),
+                selectOnly: true,
+                onSelected: (LangDropdown? lang) {
+                  setState(() {
+                    if (lang != null) {
+                      selectedLang = lang;
+                      GameState().updateLanguage(lang.language);
+                    }
+                  });
+                },
+                dropdownMenuEntries: LangDropdown.entries,
+              ),
             ],
           ),
         ),
-        body: Center(child: GamePage(key: gameKey)),
+        body: Center(child: GamePage()),
       ),
     );
   }
@@ -95,7 +125,21 @@ class GamePage extends StatefulWidget {
 }
 
 class _GamePageState extends State<GamePage> {
-  final Game _game = Game();
+  final GameState _game = GameState();
+
+  @override
+  void initState() {
+    super.initState();
+    _game.addListener(_update);
+  }
+
+  @override
+  void dispose() {
+    _game.removeListener(_update);
+    super.dispose();
+  }
+
+  void _update() => setState(() {});
 
   @override
   Widget build(BuildContext context) {
@@ -122,13 +166,19 @@ class _GamePageState extends State<GamePage> {
                     Flexible(child: Tile(letter.char, letter.type)),
                 ],
               ),
-            GuessInput(
-              onSubmitGuess: (String guess) {
-                setState(() {
-                  _game.guess(guess);
-                });
-              },
-            ),
+            if (!_game.didWin && !_game.didLose)
+              GuessInput(
+                onSubmitGuess: (String guess) {
+                  if (guess.length != 5) return;
+                  if (_game.isLegalGuess(guess)) {
+                    _game.guess(guess);
+                  } else {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text("Not in word list")));
+                  }
+                },
+              ),
           ],
         ),
       ),
