@@ -1,0 +1,31 @@
+when:
+  - event: push
+    branch: main
+
+steps:
+  build:
+    image: ghcr.io/cirruslabs/flutter:stable   # ← this is the correct modern image
+    commands:
+      - flutter --version                     # optional: shows you it's now 3.41.x + Dart 3.11.x
+      - flutter pub get
+      - flutter build web
+    when:
+      branch: main
+      event: push
+
+  deploy:
+    image: appleboy/drone-scp
+    settings:
+      host:
+        from_secret: deploy_host
+      username: www
+      key:
+        from_secret: deploy_ssh_key
+      target: /var/www/birdl
+      source: build/web
+      strip_components: 2
+      rm: true
+      port: 22
+    when:
+      branch: main
+      event: push
